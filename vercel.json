@@ -1,7 +1,29 @@
 {
   "buildCommand": "bun run build",
   "installCommand": "bun install",
-  "outputDirectory": "dist/client",
   "framework": null,
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "dist/server/**",
+      "memory": 1024
+    }
+  },
+  "routes": [
+    {
+      "src": "^/assets/(.*)$",
+      "dest": "/dist/client/assets/$1"
+    },
+    {
+      "src": "^/favicon(.*)",
+      "dest": "/dist/client/favicon$1"
+    },
+    {
+      "src": "^/apple-touch-icon(.*)",
+      "dest": "/dist/client/apple-touch-icon$1"
+    },
+    {
+      "src": "^/(.*)",
+      "dest": "/api/index"
+    }
+  ]
 }
