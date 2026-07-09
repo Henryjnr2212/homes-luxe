@@ -84,12 +84,10 @@ function AdminPortal() {
   }, []);
 
   // Custom image uploads state
-  const [customImages, setCustomImages] = useState<{ id: string; src: string; label: string }[]>(
-    [],
-  );
+  const [customImages, setCustomImages] = useState<
+    { id: string; src: string; label: string; file?: File }[]
+  >([]);
   const [isDragging, setIsDragging] = useState(false);
-  // Tracks the raw File object to be uploaded to Supabase Storage on save
-  const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -103,31 +101,39 @@ function AdminPortal() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith("image/")) {
-      const src = URL.createObjectURL(file);
-      const id = `custom-${Date.now()}`;
-      const newImg = { id, src, label: file.name };
-      setCustomImages((prev) => [...prev, newImg]);
-      setListImgId(id);
-      IMAGE_MAP[id] = src;
-      setPendingImageFile(file);
+    const files = Array.from(e.dataTransfer.files ?? []).filter((file) =>
+      file.type.startsWith("image/")
+    );
+    if (files.length > 0) {
+      const newImages = files.map((file, index) => {
+        const src = URL.createObjectURL(file);
+        const id = `custom-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`;
+        IMAGE_MAP[id] = src;
+        return { id, src, label: file.name, file };
+      });
+      setCustomImages((prev) => [...prev, ...newImages]);
+      // If no image is currently selected as primary, set the first new one as primary
+      if (!listImgId && newImages.length > 0) {
+        setListImgId(newImages[0].id);
+      }
     }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+    const files = Array.from(e.target.files ?? []).filter((file) =>
+      file.type.startsWith("image/")
+    );
     if (files.length === 0) return;
-    // Only keep the first file as the primary image
-    const file = files[0];
-    const src = URL.createObjectURL(file);
-    const id = `custom-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    IMAGE_MAP[id] = src;
-    const newImg = { id, src, label: file.name };
-    setCustomImages((prev) => [...prev, newImg]);
-    setListImgId(id);
-    // Store raw file so handleSaveListing can upload it
-    setPendingImageFile(file);
+    const newImages = files.map((file, index) => {
+      const src = URL.createObjectURL(file);
+      const id = `custom-${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`;
+      IMAGE_MAP[id] = src;
+      return { id, src, label: file.name, file };
+    });
+    setCustomImages((prev) => [...prev, ...newImages]);
+    if (!listImgId && newImages.length > 0) {
+      setListImgId(newImages[0].id);
+    }
     e.target.value = "";
   };
 
@@ -374,13 +380,17 @@ function AdminPortal() {
     setListRegion(l.region);
     setListPrice(l.price);
     setListImgId(l.imgUrl);
-    // Bind current listing image to custom showcase selector
-    const currentImg = {
-      id: l.imgUrl,
-      src: l.imgUrl,
-      label: "Current Image",
-    };
-    setCustomImages(currentImg.src ? [currentImg] : []);
+    // Bind all current listing images to custom showcase selector
+    const currentImgs = l.images && l.images.length > 0
+      ? l.images.map((imgUrl, index) => ({
+          id: l.imagePaths?.[index] || imgUrl, // Use the path/url as id
+          src: imgUrl,
+          label: `Image ${index + 1}`,
+        }))
+      : l.imgUrl
+        ? [{ id: l.imgPath || l.imgUrl, src: l.imgUrl, label: "Current Image" }]
+        : [];
+    setCustomImages(currentImgs);
     setListBeds(l.beds);
     setListBaths(l.baths);
     setListSqft(l.sqft);
@@ -398,41 +408,63 @@ function AdminPortal() {
     }
   };
 
-  // Handle listing submission — upload image file then call CMS context
+  // Handle listing submission — upload image files then call CMS context
   const handleSaveListing = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!listName || !listRegion || !listPrice || (!listImgId && customImages.length === 0)) {
-      toast.error("Please fill in all required fields (Name, Location, GHS Price, and Image).");
+    if (!listName || !listRegion || !listPrice || customImages.length === 0) {
+      toast.error("Please fill in all required fields (Name, Location, GHS Price, and at least one Image).");
       return;
     }
 
-    const imageFile = pendingImageFile;
-    const resolvedImgUrl = listImgId || "";
+    // Separate newly uploaded files from existing preserved images
+    const newImageFiles = customImages
+      .map((img) => img.file)
+      .filter(Boolean) as File[];
 
-    const payload = {
-      name: listName,
-      region: listRegion,
-      price: listPrice,
-      imgUrl: resolvedImgUrl,
-      imgPath: null as string | null,
-      beds: Number(listBeds) || 4,
-      baths: Number(listBaths) || 4,
-      sqft: listSqft || "5,000",
-      tag: listTag || "New",
-      shape: listShape,
-      description: listDesc,
-    };
+    // Extract remaining existing images/paths
+    const existingImages = customImages
+      .filter((img) => !img.file)
+      .map((img) => img.src);
+    const existingImagePaths = customImages
+      .filter((img) => !img.file)
+      .map((img) => img.id);
 
     try {
       if (editingListingId) {
-        await editListing(editingListingId, payload, imageFile);
+        const payload = {
+          name: listName,
+          region: listRegion,
+          price: listPrice,
+          beds: Number(listBeds) || 4,
+          baths: Number(listBaths) || 4,
+          sqft: listSqft || "5,000",
+          tag: listTag || "New",
+          shape: listShape,
+          description: listDesc,
+          images: existingImages,
+          imagePaths: existingImagePaths,
+        };
+        await editListing(editingListingId, payload, newImageFiles);
         toast.success(`Updated listing: ${listName}`);
       } else {
-        await addListing(payload, imageFile);
+        const payload = {
+          name: listName,
+          region: listRegion,
+          price: listPrice,
+          beds: Number(listBeds) || 4,
+          baths: Number(listBaths) || 4,
+          sqft: listSqft || "5,000",
+          tag: listTag || "New",
+          shape: listShape,
+          description: listDesc,
+          imgUrl: "",
+          imgPath: null as string | null,
+        };
+        await addListing(payload, newImageFiles);
         toast.success(`Added new listing: ${listName}`);
       }
       setIsListingModalOpen(false);
-      setPendingImageFile(null);
+      setCustomImages([]);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Save failed. Please try again.";
       toast.error(msg);

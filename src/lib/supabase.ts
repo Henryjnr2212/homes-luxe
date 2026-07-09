@@ -25,6 +25,8 @@ export interface DbListing {
   tag: string;
   shape: "arch" | "rounded";
   description: string;
+  images: string[];
+  image_paths: string[];
   created_at: string;
 }
 

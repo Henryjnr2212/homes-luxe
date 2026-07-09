@@ -15,8 +15,18 @@ CREATE TABLE IF NOT EXISTS public.listings (
     tag TEXT NOT NULL,
     shape TEXT CHECK (shape IN ('arch', 'rounded')) NOT NULL,
     description TEXT NOT NULL,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    images TEXT[] DEFAULT '{}'::text[] NOT NULL,
+    image_paths TEXT[] DEFAULT '{}'::text[] NOT NULL
 );
+
+-- Alter table to add images and image_paths columns if they don't exist (for existing databases)
+ALTER TABLE public.listings ADD COLUMN IF NOT EXISTS images TEXT[] DEFAULT '{}'::text[] NOT NULL;
+ALTER TABLE public.listings ADD COLUMN IF NOT EXISTS image_paths TEXT[] DEFAULT '{}'::text[] NOT NULL;
+
+-- Migrate existing single image rows to arrays
+UPDATE public.listings SET images = ARRAY[img_url] WHERE images = '{}'::text[];
+UPDATE public.listings SET image_paths = ARRAY[img_path] WHERE (image_paths = '{}'::text[] OR image_paths IS NULL) AND img_path IS NOT NULL;
 
 -- 2. Create inquiries table
 CREATE TABLE IF NOT EXISTS public.inquiries (

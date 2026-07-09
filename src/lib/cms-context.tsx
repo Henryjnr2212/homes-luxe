@@ -31,6 +31,8 @@ export interface Listing {
   description: string;
   tag: string;
   shape: "arch" | "rounded";
+  images: string[];
+  imagePaths: string[];
 }
 
 export interface CMSData {
@@ -92,6 +94,8 @@ const DEFAULT_DATA: CMSData = {
 };
 
 function dbRowToListing(row: DbListing): Listing {
+  const images = row.images && row.images.length > 0 ? row.images : [row.img_url];
+  const imagePaths = row.image_paths && row.image_paths.length > 0 ? row.image_paths : (row.img_path ? [row.img_path] : []);
   return {
     id: row.id,
     name: row.name,
@@ -105,6 +109,8 @@ function dbRowToListing(row: DbListing): Listing {
     description: row.description,
     tag: row.tag,
     shape: row.shape,
+    images,
+    imagePaths,
   };
 }
 
@@ -115,8 +121,12 @@ interface CMSContextProps {
   updateHero: (hero: CMSData["hero"]) => void;
   updateAbout: (about: CMSData["about"]) => void;
   updateMissionVision: (mv: CMSData["missionVision"]) => void;
-  addListing: (listing: Omit<Listing, "id">, imageFile: File | null) => Promise<void>;
-  editListing: (id: string, listing: Partial<Listing>, imageFile: File | null) => Promise<void>;
+  addListing: (listing: Omit<Listing, "id" | "images" | "imagePaths">, imageFiles: File[]) => Promise<void>;
+  editListing: (
+    id: string,
+    listing: Partial<Listing> & { images: string[]; imagePaths: string[] },
+    imageFiles: File[],
+  ) => Promise<void>;
   deleteListing: (id: string) => Promise<void>;
   resetToDefault: () => void;
   isAuthenticated: boolean;
@@ -352,16 +362,29 @@ export const CMSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { imgUrl: urlData.publicUrl, imgPath };
   };
 
-  const addListing = async (newListing: Omit<Listing, "id">, imageFile: File | null) => {
-    let imgUrl = newListing.imgUrl;
-    let imgPath = newListing.imgPath ?? null;
-    if (imageFile) {
-      const up = await uploadImage(imageFile);
-      if (up) {
-        imgUrl = up.imgUrl;
-        imgPath = up.imgPath;
+  const addListing = async (
+    newListing: Omit<Listing, "id" | "images" | "imagePaths">,
+    imageFiles: File[],
+  ) => {
+    let imgUrl = "";
+    let imgPath = null;
+    const images: string[] = [];
+    const imagePaths: string[] = [];
+
+    if (imageFiles.length > 0) {
+      for (const file of imageFiles) {
+        const up = await uploadImage(file);
+        if (up) {
+          images.push(up.imgUrl);
+          imagePaths.push(up.imgPath);
+        }
+      }
+      if (images.length > 0) {
+        imgUrl = images[0];
+        imgPath = imagePaths[0];
       }
     }
+
     const { error } = await supabase.from("listings").insert({
       name: newListing.name,
       region: newListing.region,
@@ -374,7 +397,10 @@ export const CMSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tag: newListing.tag,
       shape: newListing.shape,
       description: newListing.description,
+      images,
+      image_paths: imagePaths,
     });
+
     if (error) {
       console.error("[CMS] Insert:", error.message);
       throw new Error(error.message);
@@ -384,20 +410,38 @@ export const CMSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const editListing = async (
     id: string,
-    updatedFields: Partial<Listing>,
-    imageFile: File | null,
+    updatedFields: Partial<Listing> & { images: string[]; imagePaths: string[] },
+    imageFiles: File[],
   ) => {
-    let imgUrl = updatedFields.imgUrl;
-    let imgPath = updatedFields.imgPath ?? null;
-    if (imageFile) {
-      const up = await uploadImage(imageFile);
-      if (up) {
-        imgUrl = up.imgUrl;
-        imgPath = up.imgPath;
-        const current = data.listings.find((l) => l.id === id);
-        if (current?.imgPath) await supabase.storage.from(STORAGE_BUCKET).remove([current.imgPath]);
+    const current = data.listings.find((l) => l.id === id);
+    let images = [...updatedFields.images];
+    let imagePaths = [...updatedFields.imagePaths];
+
+    // Find which images were deleted from existing list, and remove them from storage!
+    if (current?.imagePaths) {
+      const deletedPaths = current.imagePaths.filter((p) => p && !imagePaths.includes(p));
+      if (deletedPaths.length > 0) {
+        await supabase.storage.from(STORAGE_BUCKET).remove(deletedPaths);
       }
     }
+
+    if (imageFiles.length > 0) {
+      const uploadedImages: string[] = [];
+      const uploadedPaths: string[] = [];
+      for (const file of imageFiles) {
+        const up = await uploadImage(file);
+        if (up) {
+          uploadedImages.push(up.imgUrl);
+          uploadedPaths.push(up.imgPath);
+        }
+      }
+      images = [...images, ...uploadedImages];
+      imagePaths = [...imagePaths, ...uploadedPaths];
+    }
+
+    const imgUrl = images.length > 0 ? images[0] : "";
+    const imgPath = imagePaths.length > 0 ? imagePaths[0] : null;
+
     const payload: Record<string, unknown> = {
       name: updatedFields.name,
       region: updatedFields.region,
@@ -408,9 +452,12 @@ export const CMSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       tag: updatedFields.tag,
       shape: updatedFields.shape,
       description: updatedFields.description,
+      img_url: imgUrl,
+      img_path: imgPath,
+      images,
+      image_paths: imagePaths,
     };
-    if (imgUrl !== undefined) payload.img_url = imgUrl;
-    if (imgPath !== undefined) payload.img_path = imgPath;
+
     const { error } = await supabase.from("listings").update(payload).eq("id", id);
     if (error) {
       console.error("[CMS] Update:", error.message);
@@ -422,16 +469,16 @@ export const CMSProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteListing = async (id: string) => {
     const listing = data.listings.find((l) => l.id === id);
 
-    // First delete image from storage if it exists to ensure no orphaned assets are left
-    if (listing?.imgPath) {
+    // Delete all images from storage if they exist
+    if (listing?.imagePaths && listing.imagePaths.length > 0) {
       const { error: storageError } = await supabase.storage
         .from(STORAGE_BUCKET)
-        .remove([listing.imgPath]);
+        .remove(listing.imagePaths);
       if (storageError) {
-        console.error("[CMS] Delete storage image failed:", storageError.message);
-      } else {
-        console.log("[CMS] Deleted image from storage:", listing.imgPath);
+        console.error("[CMS] Delete storage images failed:", storageError.message);
       }
+    } else if (listing?.imgPath) {
+      await supabase.storage.from(STORAGE_BUCKET).remove([listing.imgPath]);
     }
 
     const { error } = await supabase.from("listings").delete().eq("id", id);
