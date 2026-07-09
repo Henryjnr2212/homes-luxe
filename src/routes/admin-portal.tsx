@@ -50,6 +50,39 @@ function AdminPortal() {
 
   const navigate = useNavigate();
 
+  const [checkingAuth, setCheckingAuth] = useState(true);
+
+  // Verify Supabase Auth active session token on mount before mounting the UI
+  useEffect(() => {
+    const verifySession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error) {
+          console.error("Supabase auth session error:", error);
+          if (isAuthenticated) logout();
+          toast.error("Unauthorized: Session validation failed.");
+        } else if (session) {
+          // If session is active and valid, ensure we are logged in in our local state/context
+          if (!isAuthenticated) {
+            login(session.user.email ?? "admin@joselhomes.com", "admin123");
+          }
+        } else {
+          // Unauthenticated visitor trying to load /admin-portal
+          if (isAuthenticated) {
+            logout();
+          }
+          // Only alert them on first load if they aren't authenticated
+          toast.error("Unauthorized access. Please sign in to view the Admin Portal.");
+        }
+      } catch (err) {
+        console.error("Auth session check failed:", err);
+      } finally {
+        setCheckingAuth(false);
+      }
+    };
+    verifySession();
+  }, []);
+
   // Custom image uploads state
   const [customImages, setCustomImages] = useState<{ id: string; src: string; label: string }[]>(
     [],
@@ -417,6 +450,16 @@ function AdminPortal() {
       }
     }
   };
+
+  // 0. Render Loading Screen while verifying active session token
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-[#0d0f14] text-slate-100 flex flex-col items-center justify-center p-4 font-sans">
+        <Loader2 className="h-8 w-8 text-gold animate-spin mb-4" />
+        <p className="text-xs uppercase tracking-widest text-muted-foreground font-light">Verifying Session...</p>
+      </div>
+    );
+  }
 
   // 1. Render Login Screen if not authenticated
   if (!isAuthenticated) {
