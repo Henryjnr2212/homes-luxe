@@ -1117,10 +1117,14 @@ function ContactForm() {
 
       if (dbError) throw dbError;
 
-      // 3. Setup Explicit Constants
-      const SERVICE_ID = "service_vo9lny9";
-      const TEMPLATE_ID = "template_lj3zymf";
-      const PUBLIC_KEY = "ooUr_qPG9rvvCD4A5";
+      // 3. Setup Credentials from Environment Variables
+      const SERVICE_ID = import.meta.env.VITE_EMAILJS_SERVICE_ID as string;
+      const TEMPLATE_ID = import.meta.env.VITE_EMAILJS_TEMPLATE_ID as string;
+      const PUBLIC_KEY = import.meta.env.VITE_EMAILJS_PUBLIC_KEY as string;
+
+      if (!SERVICE_ID || !TEMPLATE_ID || !PUBLIC_KEY) {
+        console.warn("[EmailJS] Missing environment variables. Email transmission might fail.");
+      }
 
       const templateParams = {
         name: parsed.data.name,
