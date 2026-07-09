@@ -1081,7 +1081,37 @@ function ContactForm() {
   const [errors, setErrors] = useState<ContactErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
   const { data } = useCMS();
+
+  // Cooldown effect on mount: check if there's an active cooldown from a previous submit
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const lastSubmit = sessionStorage.getItem("josel_last_concierge_submit");
+      if (lastSubmit) {
+        const elapsed = Date.now() - Number(lastSubmit);
+        const diff = Math.ceil((60000 - elapsed) / 1000);
+        if (diff > 0) {
+          setCooldownRemaining(diff);
+        }
+      }
+    }
+  }, []);
+
+  // Cooldown countdown interval
+  useEffect(() => {
+    if (cooldownRemaining <= 0) return;
+    const interval = setInterval(() => {
+      setCooldownRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [cooldownRemaining]);
 
   const set =
     (k: keyof ContactValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -1091,6 +1121,20 @@ function ContactForm() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 1. Enforce cooldown security check
+    if (typeof window !== "undefined") {
+      const lastSubmit = sessionStorage.getItem("josel_last_concierge_submit");
+      if (lastSubmit) {
+        const elapsed = Date.now() - Number(lastSubmit);
+        if (elapsed < 60000) {
+          const remaining = Math.ceil((60000 - elapsed) / 1000);
+          toast.error(`Please wait ${remaining} seconds before submitting another enquiry.`);
+          return;
+        }
+      }
+    }
+
     if (!consentChecked) {
       toast.error("Please accept the data processing consent to proceed");
       return;
@@ -1139,10 +1183,15 @@ function ContactForm() {
         .then((res) => console.log("🔥 EmailJS Sent Successfully!", res.status, res.text))
         .catch((err) => console.error("❌ EmailJS Failed to Send:", err));
 
-      // 2. Supabase succeeded — show success toast and clear form immediately
+      // 2. Supabase succeeded — show success toast, clear form, and set cooldown
       toast.success("Enquiry submitted successfully! A Josel specialist will reach out shortly.");
       setValues({ name: "", email: "", phone: "", message: "" });
       setConsentChecked(false);
+
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("josel_last_concierge_submit", Date.now().toString());
+      }
+      setCooldownRemaining(60);
     } catch (err) {
       // Only fires if Supabase insertion itself failed
       const msg =
@@ -1268,10 +1317,14 @@ function ContactForm() {
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <button
           type="submit"
-          disabled={submitting}
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-3 rounded-full bg-primary text-primary-foreground px-8 py-4 text-sm font-medium hover:opacity-90 disabled:opacity-60 transition-opacity"
+          disabled={submitting || cooldownRemaining > 0}
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-3 rounded-full bg-primary text-primary-foreground px-8 py-4 text-sm font-medium hover:opacity-90 disabled:opacity-60 transition-opacity cursor-pointer animate-none"
         >
-          {submitting ? "Sending…" : "Send enquiry"}
+          {submitting
+            ? "Sending…"
+            : cooldownRemaining > 0
+            ? `Wait ${cooldownRemaining}s`
+            : "Send enquiry"}
           <Send size={14} />
         </button>
         <span className="text-[10px] text-muted-foreground">
