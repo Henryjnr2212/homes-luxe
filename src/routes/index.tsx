@@ -1298,8 +1298,8 @@ function TiktokIcon({ size = 16 }: { size?: number }) {
 
 /* ---------------- FOOTER ---------------- */
 const SOCIALS = [
-  { icon: Facebook, href: "https://facebook.com", label: "Facebook" },
-  { icon: Instagram, href: "https://instagram.com/joselhomes_gh", label: "Instagram" },
+  { icon: Facebook, href: "https://www.facebook.com/share/1D2Ni5gHEZ/?mibextid=wwXIfr", label: "Facebook" },
+  { icon: Instagram, href: "https://www.instagram.com/joselhomes?igsh=MXVxcXA0bTU1NTg2MA==", label: "Instagram" },
   { icon: TiktokIcon, href: "https://tiktok.com/@JOSELHOMES", label: "TikTok" },
 ];
 
