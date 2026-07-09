@@ -10,15 +10,13 @@ export const config = {
 
 function toWebRequest(req) {
   const protocol = req.headers["x-forwarded-proto"] || "https";
-  const host =
-    req.headers["x-forwarded-host"] || req.headers.host || "localhost";
+  const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
   const url = new URL(req.url, `${protocol}://${host}`);
 
   const headers = new Headers();
   for (const [key, value] of Object.entries(req.headers)) {
     if (typeof value === "string") headers.set(key, value);
-    else if (Array.isArray(value))
-      for (const v of value) headers.append(key, v);
+    else if (Array.isArray(value)) for (const v of value) headers.append(key, v);
   }
 
   return new Request(url.toString(), {
