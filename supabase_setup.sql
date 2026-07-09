@@ -45,49 +45,69 @@ ALTER TABLE public.inquiries ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Lead'
 -- 3. Enable Row Level Security (RLS) on listings
 ALTER TABLE public.listings ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies
+DROP POLICY IF EXISTS "Allow public read access to listings" ON public.listings;
+DROP POLICY IF EXISTS "Allow full access to listings for admin" ON public.listings;
+
 -- Allow public read access to listings
 CREATE POLICY "Allow public read access to listings" 
 ON public.listings FOR SELECT 
+TO public
 USING (true);
 
--- Allow full access to listings for both authenticated and anon roles 
--- (needed for admin actions, accommodating both Supabase Auth and hardcoded admin fallback credentials)
-CREATE POLICY "Allow full access to listings for admin" 
+-- Allow full access to listings ONLY for authenticated admin
+CREATE POLICY "Allow full access to listings for authenticated admin" 
 ON public.listings FOR ALL 
+TO authenticated
 USING (true) 
 WITH CHECK (true);
+
 
 -- 4. Enable Row Level Security on inquiries
 ALTER TABLE public.inquiries ENABLE ROW LEVEL SECURITY;
 
--- Allow anyone to submit contact inquiries
+-- Drop existing policies
+DROP POLICY IF EXISTS "Allow public insert to inquiries" ON public.inquiries;
+DROP POLICY IF EXISTS "Allow full access to inquiries for admin" ON public.inquiries;
+
+-- Allow public insert to inquiries (so anyone can submit the contact form)
 CREATE POLICY "Allow public insert to inquiries" 
 ON public.inquiries FOR INSERT 
+TO public
 WITH CHECK (true);
 
--- Allow full access to inquiries for both authenticated and anon roles
-CREATE POLICY "Allow full access to inquiries for admin" 
+-- Allow full access to inquiries ONLY for authenticated admin
+CREATE POLICY "Allow full access to inquiries for authenticated admin" 
 ON public.inquiries FOR ALL 
+TO authenticated
 USING (true) 
 WITH CHECK (true);
 
 
 -- 5. Storage Policies for 'property-images' bucket
--- NOTE: Please go to the Supabase Dashboard -> Storage and create a new public bucket named "property-images" first.
--- Then run the policies below to enable public reading, uploading, and deleting of property photos:
-
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('property-images', 'property-images', true)
 ON CONFLICT (id) DO NOTHING;
 
+-- Drop existing storage policies
+DROP POLICY IF EXISTS "Allow public read access to property-images" ON storage.objects;
+DROP POLICY IF EXISTS "Allow public upload to property-images" ON storage.objects;
+DROP POLICY IF EXISTS "Allow public delete from property-images" ON storage.objects;
+
+-- Allow public read access to property images
 CREATE POLICY "Allow public read access to property-images" 
 ON storage.objects FOR SELECT 
+TO public
 USING (bucket_id = 'property-images');
 
-CREATE POLICY "Allow public upload to property-images" 
+-- Allow uploads ONLY for authenticated admin
+CREATE POLICY "Allow authenticated upload to property-images" 
 ON storage.objects FOR INSERT 
+TO authenticated
 WITH CHECK (bucket_id = 'property-images');
 
-CREATE POLICY "Allow public delete from property-images" 
+-- Allow deletes ONLY for authenticated admin
+CREATE POLICY "Allow authenticated delete from property-images" 
 ON storage.objects FOR DELETE 
+TO authenticated
 USING (bucket_id = 'property-images');
